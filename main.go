@@ -24,19 +24,22 @@ type Application struct {
 	cmd         *exec.Cmd
 	timeoutUnit time.Duration
 	timeout     time.Duration
+	interval    time.Duration
 	command     []string
 }
 
 func main() {
 	cmd := flag.String("command", "", "Command to execute")
 	timeout := flag.Int("timeout", 0, "timeout of max execution")
+	interval := flag.Int("interval", 0, "interval between command calls")
 	flag.Parse()
 	bus := make(chan int)
 	signalBus := make(chan os.Signal)
-	app := NewApplication(
-		bus,
+	app := NewApplication(bus)
+	app.configure(
 		WithCommand(cmd),
 		WithTimeout(timeout),
+		WithInterval(interval),
 	)
 	for _, s := range []os.Signal{os.Interrupt, syscall.SIGTERM, os.Kill} {
 		signal.Notify(signalBus, s)
@@ -57,15 +60,11 @@ func main() {
 
 }
 
-func NewApplication(bus chan int, opts ...Option) Application {
-	app := Application{
+func NewApplication(bus chan int) *Application {
+	return &Application{
 		bus:         bus,
 		timeoutUnit: time.Second,
 	}
-	for _, opt := range opts {
-		opt(&app)
-	}
-	return app
 }
 
 func (a *Application) notify(s os.Signal) {
@@ -76,10 +75,16 @@ func (a *Application) notify(s os.Signal) {
 	}
 }
 
+func (a *Application) configure(opts ...Option) {
+	for _, opt := range opts {
+		opt(a)
+	}
+}
+
 func (a Application) start() {
 	go a.setTimeout()
 	if code := a.validate(); code != 0 {
-		a.bus <- 12
+		a.bus <- code
 	}
 	a.execute()
 }
@@ -116,33 +121,9 @@ func (a *Application) execute() {
 			a.bus <- code
 			break
 		}
-		if err := a.cmd.Wait(); err != nil {
-			log.Println("Done")
+		if a.interval > 0 {
+			time.Sleep(a.interval)
 		}
-	}
-}
-
-func WithTimeout(timeout *int) Option {
-	return func(o *Application) {
-		if timeout == nil {
-			return
-		}
-		if *timeout == 0 {
-			return
-		}
-		o.timeout = time.Duration(*timeout) * o.timeoutUnit
-	}
-}
-
-func WithCommand(cmd *string) Option {
-	return func(o *Application) {
-		if cmd == nil {
-			return
-		}
-		if *cmd == "" {
-			return
-		}
-		o.command = unpackCommand(*cmd)
 	}
 }
 
