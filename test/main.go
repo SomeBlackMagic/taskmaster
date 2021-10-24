@@ -1,21 +1,23 @@
 package main
 
 import (
-	"os"
+	"log"
+	"time"
 )
 
-func main() {
-	/*sigs := make(chan os.Signal)
-	signal.Notify(sigs, os.Interrupt)
-	go func() {
-		for s := range sigs {
-			if s == os.Interrupt {
-				fmt.Printf("Proxy signal received %+v", s)
-				os.Exit(0)
-			}
-		}
-	}()
-	time.Sleep(2 * time.Minute)*/
+var strings = []string{
+	"Some",
+	"Mystical",
+	"Monster",
+	"Goes",
+	"Around",
+	"The",
+	"Cave",
+}
 
-	os.Exit(0)
+func main() {
+	for _, v := range strings {
+		log.Println(v)
+		time.Sleep(10 * time.Second)
+	}
 }
