@@ -9,24 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 )
-
-const (
-	codeNoCommand    = 32
-	codeEmptyCommand = 33
-)
-
-type Option func(o *Application)
-
-type Application struct {
-	bus chan int
-
-	timeoutUnit time.Duration
-	timeout     time.Duration
-	interval    time.Duration
-	command     []string
-}
 
 var (
 	cmd     *exec.Cmd
@@ -58,7 +41,12 @@ func main() {
 	for {
 		select {
 		case code := <-bus:
-			fmt.Printf("Shutting down. Code:%d", code)
+			switch code {
+			case -1:
+				fmt.Printf("Interrupted. Code:%d", code)
+			default:
+				fmt.Printf("Shutting down. Code:%d", code)
+			}
 			close(bus)
 			os.Exit(code)
 			return
@@ -66,8 +54,20 @@ func main() {
 			if cmd == nil {
 				continue
 			}
-			if err := cmd.Process.Signal(sig); err != nil {
-				log.Fatalf("Error forwarding signal to internal app:%s", err)
+			log.Printf("Got signal, sending to inner app:%+v", sig)
+			switch sig {
+			case os.Kill, os.Interrupt:
+				if err := cmd.Process.Signal(sig); err != nil {
+					log.Fatalf("Error forwarding signal to internal app:%s", err)
+				}
+			case syscall.SIGTERM:
+				if err := syscall.Kill(cmd.Process.Pid, syscall.SIGTERM); err != nil {
+					log.Fatalf("Error forwarding signal to internal app:%s", err)
+				}
+			case syscall.SIGKILL:
+				if err := syscall.Kill(cmd.Process.Pid, syscall.SIGKILL); err != nil {
+					log.Fatalf("Error forwarding signal to internal app:%s", err)
+				}
 			}
 		}
 	}
@@ -90,7 +90,8 @@ func execute(rawCommand string) {
 			break
 		}
 		if err := cmd.Wait(); err != nil {
-
+			bus <- 0
+			break
 		}
 	}
 }

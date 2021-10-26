@@ -20,4 +20,5 @@ func main() {
 		log.Println(v)
 		time.Sleep(10 * time.Second)
 	}
+	log.Fatalf("And prepares to attack")
 }
