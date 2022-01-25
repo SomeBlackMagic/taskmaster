@@ -1,0 +1,5 @@
+.docker
+pkg
+Makefile
+.env
+.gitignore

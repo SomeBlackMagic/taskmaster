@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -21,6 +20,9 @@ var (
 		os.Kill,
 		syscall.SIGKILL,
 	}
+	WarningLogger *log.Logger
+	InfoLogger    *log.Logger
+	ErrorLogger   *log.Logger
 )
 
 func init() {
@@ -29,13 +31,17 @@ func init() {
 	for _, s := range listen {
 		signal.Notify(signals, s)
 	}
+
+	InfoLogger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime)
+	WarningLogger = log.New(os.Stderr, "WARNING: ", log.Ldate|log.Ltime)
+	ErrorLogger = log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime)
 }
 
 func main() {
 	command := flag.String("command", "", "Command to execute")
 	flag.Parse()
 	if command == nil {
-		log.Fatalf("Please specify command via --command parameter")
+		ErrorLogger.Fatalf("[taskmaster] Please specify command via --command parameter")
 	}
 	go execute(*command)
 	for {
@@ -43,9 +49,9 @@ func main() {
 		case code := <-bus:
 			switch code {
 			case -1:
-				fmt.Printf("Interrupted. Code:%d", code)
+				InfoLogger.Printf("[taskmaster] Interrupted. Code:%d", code)
 			default:
-				fmt.Printf("Shutting down. Code:%d", code)
+				InfoLogger.Printf("[taskmaster] Shutting down. Code:%d", code)
 			}
 			close(bus)
 			os.Exit(code)
@@ -54,19 +60,19 @@ func main() {
 			if cmd == nil {
 				continue
 			}
-			log.Printf("Got signal, sending to inner app:%+v", sig)
+			InfoLogger.Printf("[taskmaster] Got signal, sending to inner app: %+v", sig)
 			switch sig {
 			case os.Kill, os.Interrupt:
 				if err := cmd.Process.Signal(sig); err != nil {
-					log.Fatalf("Error forwarding signal to internal app:%s", err)
+					WarningLogger.Fatalf("[taskmaster] Error forwarding signal to internal app: %s", err)
 				}
 			case syscall.SIGTERM:
 				if err := syscall.Kill(cmd.Process.Pid, syscall.SIGTERM); err != nil {
-					log.Fatalf("Error forwarding signal to internal app:%s", err)
+					WarningLogger.Fatalf("[taskmaster] Error forwarding signal to internal app: %s", err)
 				}
 			case syscall.SIGKILL:
 				if err := syscall.Kill(cmd.Process.Pid, syscall.SIGKILL); err != nil {
-					log.Fatalf("Error forwarding signal to internal app:%s", err)
+					WarningLogger.Fatalf("[taskmaster] Error forwarding signal to internal app: %s", err)
 				}
 			}
 		}
@@ -76,12 +82,13 @@ func main() {
 func execute(rawCommand string) {
 	command := unpackCommand(rawCommand)
 	for {
+		InfoLogger.Printf("[taskmaster] Start new process: %s", command)
 		if len(command) > 1 {
 			cmd = exec.Command(command[0], command[1:]...)
 		} else if len(command) == 1 {
 			cmd = exec.Command(command[0])
 		} else {
-			log.Fatalf("Error unpacking command, nothing to execute")
+			ErrorLogger.Fatalf("[taskmaster] Error unpacking command, nothing to execute")
 		}
 		cmd.Stdin = os.Stdin
 		cmd.Stderr = os.Stderr
