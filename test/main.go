@@ -11,14 +11,15 @@ import (
 var strings = []string{
 	"Some",
 	"Mystical",
-	"Monster",
-	"Goes",
-	"Around",
-	"The",
-	"Cave",
+	//"Monster",
+	//"Goes",
+	//"Around",
+	//"The",
+	//"Cave",
 }
 
 var (
+	bus     chan int
 	signals chan os.Signal
 	listen  = []os.Signal{
 		os.Interrupt,
@@ -29,6 +30,7 @@ var (
 )
 
 func init() {
+	bus = make(chan int)
 	signals = make(chan os.Signal)
 	for _, s := range listen {
 		signal.Notify(signals, s)
@@ -45,6 +47,10 @@ func main() {
 			log.Printf("[testApp] Shutdown done. exit: ")
 			os.Exit(0)
 			return
+		case code := <-bus:
+			log.Printf("[testApp] Normal shutdown:  %+v", code)
+			os.Exit(0)
+			return
 		}
 	}
 }
@@ -52,7 +58,8 @@ func main() {
 func work() {
 	for _, v := range strings {
 		log.Println("[testApp] ", v)
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
-	log.Fatalf("[testApp] And prepares to attack")
+	bus <- 0
+	return
 }

@@ -1,12 +1,10 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 )
 
@@ -38,24 +36,30 @@ func init() {
 }
 
 func main() {
-	command := flag.String("command", "", "Command to execute")
-	flag.Parse()
-	if command == nil {
-		ErrorLogger.Fatalf("[taskmaster] Please specify command via --command parameter")
-	}
-	go execute(*command)
+	command := os.Args
+	command = append(command[:0], command[1:]...)
+
+	go execute(command)
+	isShutdown := false
 	for {
 		select {
 		case code := <-bus:
 			switch code {
 			case -1:
 				InfoLogger.Printf("[taskmaster] Interrupted. Code:%d", code)
+			case 0:
+				if isShutdown == false {
+					go execute(command)
+				} else {
+					close(bus)
+					os.Exit(0)
+				}
 			default:
 				InfoLogger.Printf("[taskmaster] Shutting down. Code:%d", code)
+				close(bus)
+				os.Exit(code)
+				return
 			}
-			close(bus)
-			os.Exit(code)
-			return
 		case sig := <-signals:
 			if cmd == nil {
 				continue
@@ -63,14 +67,17 @@ func main() {
 			InfoLogger.Printf("[taskmaster] Got signal, sending to inner app: %+v", sig)
 			switch sig {
 			case os.Kill, os.Interrupt:
+				isShutdown = true
 				if err := cmd.Process.Signal(sig); err != nil {
 					WarningLogger.Fatalf("[taskmaster] Error forwarding signal to internal app: %s", err)
 				}
 			case syscall.SIGTERM:
+				isShutdown = true
 				if err := syscall.Kill(cmd.Process.Pid, syscall.SIGTERM); err != nil {
 					WarningLogger.Fatalf("[taskmaster] Error forwarding signal to internal app: %s", err)
 				}
 			case syscall.SIGKILL:
+				isShutdown = true
 				if err := syscall.Kill(cmd.Process.Pid, syscall.SIGKILL); err != nil {
 					WarningLogger.Fatalf("[taskmaster] Error forwarding signal to internal app: %s", err)
 				}
@@ -79,8 +86,9 @@ func main() {
 	}
 }
 
-func execute(rawCommand string) {
-	command := unpackCommand(rawCommand)
+func execute(rawCommand []string) {
+	command := rawCommand
+	//command := unpackCommand(rawCommand)
 	for {
 		InfoLogger.Printf("[taskmaster] Start new process: %s", command)
 		if len(command) > 1 {
@@ -93,10 +101,12 @@ func execute(rawCommand string) {
 		cmd.Stdin = os.Stdin
 		cmd.Stderr = os.Stderr
 		if code := statusCode(cmd); code != 0 {
+			InfoLogger.Printf("[taskmaster] Inner app exit with code: %+v", code)
 			bus <- code
 			break
 		}
 		if err := cmd.Wait(); err != nil {
+			InfoLogger.Printf("[taskmaster] Inner app exit with code: 0")
 			bus <- 0
 			break
 		}
@@ -110,15 +120,4 @@ func statusCode(cmd *exec.Cmd) int {
 		}
 	}
 	return 0
-}
-
-func unpackCommand(command string) (parts []string) {
-	if !strings.Contains(command, " ") {
-		parts = []string{command}
-	} else {
-		if parts = strings.Split(command, " "); len(parts) == 0 {
-			return nil
-		}
-	}
-	return
 }
