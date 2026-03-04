@@ -25,6 +25,22 @@ func newDiscardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// TestRunnerPreCancelledContext verifies that Run returns nil immediately
+// when called with an already-cancelled context (covers top-of-loop guard).
+func TestRunnerPreCancelledContext(t *testing.T) {
+	cfg := runner.DefaultConfig()
+	cfg.Command = []string{"sleep", "100"}
+
+	r := runner.New(cfg, newDiscardLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before Run
+
+	if err := r.Run(ctx); err != nil {
+		t.Errorf("Run() error = %v, want nil for pre-cancelled context", err)
+	}
+}
+
 // TestRunnerStopsOnContextCancel verifies that Run returns nil when the
 // context is cancelled while the child process is running.
 func TestRunnerStopsOnContextCancel(t *testing.T) {

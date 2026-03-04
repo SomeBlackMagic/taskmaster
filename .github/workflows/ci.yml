@@ -22,8 +22,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test (race detector)
-        run: go test -race ./...
+      - name: Test (race detector + coverage)
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Coverage report
+        run: go tool cover -func=coverage.out
 
       - name: Build
         run: go build ./cmd/taskmaster
