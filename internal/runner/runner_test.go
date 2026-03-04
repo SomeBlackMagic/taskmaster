@@ -91,3 +91,38 @@ func TestRunnerSignalBeforeStart(t *testing.T) {
 		t.Errorf("Signal() before start error = %v, want nil", err)
 	}
 }
+
+// TestRunnerMaxRestarts verifies that the runner stops and returns an error
+// after reaching the configured MaxRestarts limit on exit code 0.
+func TestRunnerMaxRestarts(t *testing.T) {
+	cfg := runner.DefaultConfig()
+	cfg.Command = []string{"true"} // always exits with code 0
+	cfg.RestartDelay = 0
+	cfg.MaxRestarts = 2 // allow 2 restarts (3 total starts)
+
+	r := runner.New(cfg, newDiscardLogger())
+
+	err := r.Run(context.Background())
+	if err == nil {
+		t.Error("Run() error = nil, want non-nil after max restarts reached")
+	}
+}
+
+// TestRunnerMaxRestartsZeroMeansUnlimited verifies that MaxRestarts=0 means
+// unlimited restarts (default behavior).
+func TestRunnerMaxRestartsZeroMeansUnlimited(t *testing.T) {
+	cfg := runner.DefaultConfig()
+	cfg.Command = []string{"true"}
+	cfg.RestartDelay = 5 * time.Millisecond
+	cfg.MaxRestarts = 0 // unlimited
+
+	r := runner.New(cfg, newDiscardLogger())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := r.Run(ctx)
+	if err != nil {
+		t.Errorf("Run() error = %v, want nil (unlimited restarts, stopped by ctx)", err)
+	}
+}

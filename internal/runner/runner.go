@@ -58,7 +58,7 @@ func (r *Runner) Signal(sig os.Signal) error {
 }
 
 // loop is the main restart loop. It runs the process, restarts on exit 0,
-// and stops on non-zero exit or context cancellation.
+// and stops on non-zero exit, context cancellation, or MaxRestarts reached.
 // Panics inside the loop are recovered and returned as errors (rule #49).
 func (r *Runner) loop(ctx context.Context) (retErr error) {
 	defer func() {
@@ -68,13 +68,15 @@ func (r *Runner) loop(ctx context.Context) (retErr error) {
 		}
 	}()
 
+	restarts := 0
+
 	for {
 		// Check context before each iteration (rule #24).
 		if ctx.Err() != nil {
 			return nil
 		}
 
-		r.logger.InfoContext(ctx, "starting process", "command", r.cfg.Command)
+		r.logger.InfoContext(ctx, "starting process", "command", r.cfg.Command, "restarts", restarts)
 
 		err := r.runOnce(ctx)
 		if err != nil {
@@ -93,9 +95,16 @@ func (r *Runner) loop(ctx context.Context) (retErr error) {
 			return fmt.Errorf("process error: %w", err)
 		}
 
-		// Exit code 0 — wait for restart delay, then loop (rule #47).
+		// Exit code 0: check restart limit before sleeping (rule #47).
+		if r.cfg.MaxRestarts > 0 && restarts >= r.cfg.MaxRestarts {
+			r.logger.InfoContext(ctx, "max restarts reached, stopping",
+				"max_restarts", r.cfg.MaxRestarts)
+			return fmt.Errorf("max restarts (%d) reached", r.cfg.MaxRestarts)
+		}
+
+		restarts++
 		r.logger.InfoContext(ctx, "process exited with code 0, restarting",
-			"delay", r.cfg.RestartDelay)
+			"delay", r.cfg.RestartDelay, "restarts", restarts)
 
 		select {
 		case <-ctx.Done():
@@ -109,12 +118,7 @@ func (r *Runner) loop(ctx context.Context) (retErr error) {
 // Returns nil on exit code 0, *exec.ExitError on non-zero, or a wrapped
 // error if the process could not be started.
 func (r *Runner) runOnce(ctx context.Context) error {
-	var cmd *exec.Cmd
-	if len(r.cfg.Command) > 1 {
-		cmd = exec.CommandContext(ctx, r.cfg.Command[0], r.cfg.Command[1:]...)
-	} else {
-		cmd = exec.CommandContext(ctx, r.cfg.Command[0])
-	}
+	cmd := exec.CommandContext(ctx, r.cfg.Command[0], r.cfg.Command[1:]...)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
