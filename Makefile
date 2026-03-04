@@ -1,22 +1,24 @@
 include .env
 
-compile:
+.PHONY: build test lint clean run docker-build docker-push
+
+build:
 	@echo "Building taskmaster"
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build -o dist/taskmaster src/main.go
-	@echo "Building test app"
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build -o test/main test/main.go
-run:
-	./dist/taskmaster --command="./test/main"
+	@go build -o dist/taskmaster ./cmd/taskmaster
+	@echo "Building testapp"
+	@go build -o dist/testapp ./test/testapp
 
-purge:
-	rm -v ./dist/taskmaster
-	rm -v ./test/main
 test:
-	pwd
-	compile
-	run
-	purge
+	go test -race ./...
 
+lint:
+	go vet ./...
+
+clean:
+	rm -rf dist/
+
+run: build
+	./dist/taskmaster ./dist/testapp
 
 docker-build:
 	docker build . -f .docker/Dockerfile --tag $(DOCKER_SERVER_HOST)/$(DOCKER_PROJECT_PATH):$(DOCKER_IMAGE_VERSION)

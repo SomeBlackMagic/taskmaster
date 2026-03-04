@@ -1,4 +1,3 @@
-module test
+module github.com/SomeBlackMagic/taskmaster
 
-go 1.17
-
+go 1.23
