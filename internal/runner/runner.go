@@ -17,20 +17,52 @@ import (
 // exit code 0, and stops it when the context is cancelled or the process
 // exits with a non-zero code.
 type Runner struct {
-	cfg    Config
-	logger *slog.Logger
+	cfg     Config
+	logger  *slog.Logger
+	starter ProcessStarter // injected; default is execStarter
 
 	mu  sync.Mutex
-	cmd *exec.Cmd
+	cmd *exec.Cmd // guarded by mu; only set by execStarter
 }
 
 // New creates a Runner with the given config and logger.
 // All dependencies are injected; no global state is used.
 func New(cfg Config, logger *slog.Logger) *Runner {
-	return &Runner{
-		cfg:    cfg,
-		logger: logger,
+	r := &Runner{cfg: cfg, logger: logger}
+	r.starter = &execStarter{r: r}
+	return r
+}
+
+// NewWithStarter creates a Runner with a custom ProcessStarter.
+// Intended for testing; production code should use New.
+func NewWithStarter(cfg Config, logger *slog.Logger, starter ProcessStarter) *Runner {
+	return &Runner{cfg: cfg, logger: logger, starter: starter}
+}
+
+// execStarter is the default ProcessStarter backed by os/exec.
+// It also maintains r.cmd so that Runner.Signal works correctly.
+type execStarter struct {
+	r *Runner
+}
+
+func (e *execStarter) Start(ctx context.Context, command []string) error {
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	// WaitDelay must be set before Start(); gives the process time to flush
+	// output after context cancellation before SIGKILL is sent.
+	cmd.WaitDelay = 5 * time.Second
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start: %w", err)
 	}
+
+	e.r.setCmd(cmd)
+	defer e.r.setCmd(nil)
+
+	return cmd.Wait()
 }
 
 // Run starts the process management loop and blocks until it finishes.
@@ -114,27 +146,9 @@ func (r *Runner) loop(ctx context.Context) (retErr error) {
 	}
 }
 
-// runOnce starts the child process and waits for it to exit.
-// Returns nil on exit code 0, *exec.ExitError on non-zero, or a wrapped
-// error if the process could not be started.
+// runOnce runs one instance of the child process via the injected starter.
 func (r *Runner) runOnce(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, r.cfg.Command[0], r.cfg.Command[1:]...)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	// WaitDelay must be set before Start(); gives the process time to flush
-	// output after context cancellation before SIGKILL is sent.
-	cmd.WaitDelay = 5 * time.Second
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start: %w", err)
-	}
-
-	r.setCmd(cmd)
-	defer r.setCmd(nil)
-
-	return cmd.Wait()
+	return r.starter.Start(ctx, r.cfg.Command)
 }
 
 // setCmd safely updates the current child process reference (rule #34).
