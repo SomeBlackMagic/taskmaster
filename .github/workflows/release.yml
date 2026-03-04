@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
+          for target in $targets; do
+            GOOS=${target%/*}
+            GOARCH=${target#*/}
+            ext=""
+            [ "$GOOS" = "windows" ] && ext=".exe"
+            out="dist/taskmaster-${GOOS}-${GOARCH}${ext}"
+            echo "building $out"
+            GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -o "$out" ./cmd/taskmaster
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
